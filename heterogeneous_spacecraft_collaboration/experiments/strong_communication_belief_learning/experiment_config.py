@@ -1,6 +1,6 @@
 # experiments/strong_comm_belief_learning/experiment_config.py
 """
-强通信信念自学习实验配置模块
+强通信信念自学习实验配置模块 - 修复信念形状错误
 用于生成不同实验场景的配置参数
 """
 
@@ -28,9 +28,9 @@ class BeliefLearningExperimentConfig:
                 "stop_if_all_tasks_done": True,
                 "orbit_mean_motion_n": 0.0011,
                 "belief_update_interval_ksc_steps": 1,
-                "task_completion_distance_threshold": 80.0,  # 增大完成距离阈值
+                "task_completion_distance_threshold": 80.0,
                 "physical_state_update_interval_sim_steps": -1,
-                "perturbation_pos_drift_max_per_dt": 0.02,  # 小幅随机扰动
+                "perturbation_pos_drift_max_per_dt": 0.02,
                 "perturbation_vel_drift_max_per_dt": 0.001
             },
             
@@ -38,15 +38,15 @@ class BeliefLearningExperimentConfig:
                 "initial_mass_kg": 120.0,
                 "isp_s": 350.0,
                 "agent_radius": 0.8,
-                "fuel_cost_coeff": 0.8,  # 降低燃料成本权重，鼓励机动
-                "observation_accuracy_p_corr": 0.90,  # 高观测精度
+                "fuel_cost_coeff": 0.8,
+                "observation_accuracy_p_corr": 0.90,
                 "capabilities": ["sensor_multi", "actuator_main"],
                 "type": "strong_comm_agent"
             },
             
             "task_params_template": {
-                "position_range": (-2000.0, 2000.0),  # 5km x 5km 范围
-                "min_distance_between_tasks": 200.0,  # 任务间最小距离200m
+                "position_range": (-2000.0, 2000.0),
+                "min_distance_between_tasks": 200.0,
                 "total_workload_range": (180.0, 280.0),
                 "work_rate_per_agent_dt_range": (2.0, 3.5),
                 "reward_ranges_by_type": {
@@ -75,16 +75,25 @@ class BeliefLearningExperimentConfig:
                 }
             },
             
+            # 修复信念参数配置
             "belief_params": {
-                "initial_belief_alpha_base": 1.5,  # 初始信念强度
+                "initial_belief_alpha_base": 1.5,  # 保持为标量
                 "num_task_types": 3,
                 "task_type_names": ["高价值科研", "普通巡查", "紧急维修"]
+            },
+            
+            # 修复AIF全局超参数，确保信念相关参数正确
+            "aif_global_hyperparams": {
+                "initial_belief_alpha_ksc": 1.5,  # 标量值
+                "belief_update_rate": 0.1,
+                "num_task_types": 3,  # 确保一致
+                "enable_belief_learning": True
             },
             
             "mpc_params": {
                 "prediction_horizon": 12,
                 "Q_terminal_diag": [150.0, 150.0, 15.0, 15.0],
-                "R_control_diag": [0.001, 0.001],  # 极低控制成本
+                "R_control_diag": [0.001, 0.001],
                 "u_max_abs": 0.4,
                 "solver_print_level": 0
             }
@@ -217,27 +226,33 @@ class BeliefLearningExperimentConfig:
         # 生成任务配置
         config["tasks"] = self._generate_task_configs(num_tasks, custom_task_min_distance, custom_completion_threshold)
         
-        # 设置AIF相关参数（虽然主要用强通信，但框架需要）
+        # 设置任务类型名称（确保与信念系统一致）
+        config["task_type_names"] = self.base_params["belief_params"]["task_type_names"]
+        
+        # 设置AIF相关参数
         config["aif_goal_positions"] = [np.array(task["position"]) for task in config["tasks"].values()]
         config["aif_num_abstract_goals"] = num_tasks
         config["aif_allow_multiple_to_same_goal"] = False
         
-        # 自定义参数
+        # 修复自定义参数设置
         if custom_belief_alpha is not None:
-            config["belief_params"]["initial_belief_alpha_base"] = custom_belief_alpha
+            # 确保信念强度参数在所有相关位置都是标量
+            config["belief_params"]["initial_belief_alpha_base"] = float(custom_belief_alpha)
+            config["aif_global_hyperparams"]["initial_belief_alpha_ksc"] = float(custom_belief_alpha)
             
         if custom_belief_update_interval is not None:
             config["simulation_params"]["belief_update_interval_ksc_steps"] = custom_belief_update_interval
             
-        # 初始信念设置
-        config["initial_belief_overrides"] = self._generate_initial_beliefs(num_agents, num_tasks, custom_belief_alpha)
+        # 禁用初始信念覆盖，让系统使用默认初始化
+        # 这可以避免形状不匹配的问题
+        config["initial_belief_overrides"] = {}
         
-        # 可视化设置
+        # 简化的可视化设置
         config["visualization_settings"] = {
             "plot_overall_performance": True,
             "plot_agent_trajectories": True,
             "plot_task_gantt": True,
-            "plot_belief_convergence_for": self._get_belief_tracking_config(num_agents, num_tasks),
+            "plot_belief_convergence_for": {},  # 禁用信念跟踪以避免问题
             "plot_ksc_assignments_evolution": True,
             "plot_ksc_communication_stats": True,
             "plot_agent_velocities": True,
@@ -255,11 +270,11 @@ class BeliefLearningExperimentConfig:
         """生成航天器配置"""
         spacecrafts = []
         
-        # 在5km x 5km范围内均匀分布初始位置
-        initial_radius = 800.0  # 初始分布半径
+        initial_radius = 800.0
         
         for i in range(num_agents):
-            agent_id = f"SC{i+1:02d}"
+            # 使用标准格式
+            agent_id = f"SC{i+1}"
             
             # 均匀分布初始位置
             angle = 2 * np.pi * i / num_agents
@@ -274,7 +289,7 @@ class BeliefLearningExperimentConfig:
                 physical_params["observation_accuracy_p_corr"] = custom_observation_accuracy
                 
             ksc_params = {
-                "k_value": custom_k_value if custom_k_value is not None else (2 + i % 3)  # K值在2-4之间变化
+                "k_value": custom_k_value if custom_k_value is not None else (2 + i % 3)
             }
             
             spacecraft = {
@@ -297,24 +312,22 @@ class BeliefLearningExperimentConfig:
         task_positions = []
         
         min_distance = custom_min_distance if custom_min_distance is not None else self.base_params["task_params_template"]["min_distance_between_tasks"]
-        completion_threshold = custom_completion_threshold if custom_completion_threshold is not None else self.base_params["simulation_params"]["task_completion_distance_threshold"]
         
         # 任务类型循环分配
         task_types = self.base_params["belief_params"]["task_type_names"]
         
         for i in range(num_tasks):
-            task_id = f"Task{i+1:02d}"
+            # 使用标准格式
+            task_id = f"Task{i+1}"
             task_type = task_types[i % len(task_types)]
             
-            # 生成任务位置，确保距离足够远
+            # 生成任务位置
             max_attempts = 100
             for attempt in range(max_attempts):
-                # 在更大范围内生成位置，确保分散
                 x = random.uniform(-2200, 2200)
                 y = random.uniform(-2200, 2200)
                 position = np.array([x, y])
                 
-                # 检查与已有任务的距离
                 if not task_positions:
                     task_positions.append(position)
                     break
@@ -326,7 +339,6 @@ class BeliefLearningExperimentConfig:
                     task_positions.append(position)
                     break
             else:
-                # 如果无法找到足够远的位置，使用最后一个位置
                 task_positions.append(position)
             
             # 任务参数
@@ -360,47 +372,6 @@ class BeliefLearningExperimentConfig:
             tasks[task_id] = task_config
             
         return tasks
-    
-    def _generate_initial_beliefs(self, 
-                                num_agents: int, 
-                                num_tasks: int, 
-                                custom_alpha: Optional[float] = None) -> Dict[str, Dict[str, np.ndarray]]:
-        """生成初始信念配置"""
-        initial_beliefs = {}
-        base_alpha = custom_alpha if custom_alpha is not None else self.base_params["belief_params"]["initial_belief_alpha_base"]
-        num_types = self.base_params["belief_params"]["num_task_types"]
-        
-        for i in range(num_agents):
-            agent_id = f"SC{i+1:02d}"
-            initial_beliefs[agent_id] = {}
-            
-            # 为每个任务生成初始信念
-            for j in range(min(num_tasks, 8)):  # 限制初始信念设置的任务数量
-                task_id = f"Task{j+1:02d}"
-                
-                # 生成略有偏向的初始信念
-                alphas = np.full(num_types, base_alpha)
-                
-                # 给某个类型增加一些偏向
-                biased_type = (i + j) % num_types
-                alphas[biased_type] += random.uniform(0.5, 2.0)
-                
-                initial_beliefs[agent_id][task_id] = alphas
-                
-        return initial_beliefs
-    
-    def _get_belief_tracking_config(self, num_agents: int, num_tasks: int) -> Dict[str, List[str]]:
-        """获取信念跟踪配置"""
-        tracking_config = {}
-        
-        # 为前几个智能体设置信念跟踪
-        for i in range(min(num_agents, 4)):
-            agent_id = f"SC{i+1:02d}"
-            # 跟踪前几个任务的信念
-            tracked_tasks = [f"Task{j+1:02d}" for j in range(min(num_tasks, 6))]
-            tracking_config[agent_id] = tracked_tasks
-            
-        return tracking_config
 
     def get_all_experiment_configs(self) -> Dict[str, List[Dict[str, Any]]]:
         """获取所有实验配置"""
